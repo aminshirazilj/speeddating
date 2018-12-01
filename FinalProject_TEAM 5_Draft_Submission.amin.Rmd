@@ -492,6 +492,58 @@ t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`,
  
  
  
+ ```{r echo = FALSE}
+
+
+library(fmsb)
+## mean the rank?
+dunique1_1<- d %>% distinct(iid, .keep_all = TRUE)%>%select(iid,gender,attr1_1,sinc1_1,intel1_1,fun1_1,amb1_1,shar1_1)
+dunique1_1$gender <- as.factor(dunique1_1$gender)
+attr1_1_rank_1 <- data.frame(dunique1_1, t(apply(dunique1_1[-(1:2)], 1, rank, ties.method = "min")))
+
+
+a2 <- mean(attr1_1_rank_1$attr1_1.1, na.rm = T)
+b2 <- mean(attr1_1_rank_1$sinc1_1.1, na.rm = T)
+c2 <- mean(attr1_1_rank_1$intel1_1.1, na.rm = T)
+d2 <- mean(attr1_1_rank_1$fun1_1.1, na.rm = T)
+e2 <- mean(attr1_1_rank_1$amb1_1.1, na.rm = T)
+f2 <- mean(attr1_1_rank_1$shar1_1.1, na.rm = T)
+radardata2 <- c(a2,b2,c2,d2,e2,f2)
+names(radardata2) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radardata2_1 <- rbind(rep(5,6) , rep(0,6) , radardata2)
+
+par(mfrow = c(1,2))
+radarchart(as.data.frame(radardata1_1))
+radarchart(as.data.frame(radardata2_1))
+
+
+### FEMALE
+
+attr1_1_rankF <- attr1_1_rank_1%>%filter(gender == 0)
+radardata1_1_F <- c(mean(attr1_1_rankF$attr1_1.1, na.rm = T),mean(attr1_1_rankF$sinc1_1.1, na.rm = T),mean(attr1_1_rankF$intel1_1.1, na.rm = T),mean(attr1_1_rankF$fun1_1.1, na.rm = T),mean(attr1_1_rankF$amb1_1.1, na.rm = T),mean(attr1_1_rankF$shar1_1.1, na.rm = T))
+names(radardata1_1_F) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radardata1_1_F_2 <- rbind(rep(6,6) , rep(0,6) , radardata1_1_F)
+
+
+###GUYS
+
+attr1_1_rankM <- attr1_1_rank_1%>%filter(gender == 1)
+radardata1_1_M <- c(mean(attr1_1_rankM$attr1_1.1, na.rm = T),mean(attr1_1_rankM$sinc1_1.1, na.rm = T),mean(attr1_1_rankM$intel1_1.1, na.rm = T),mean(attr1_1_rankM$fun1_1.1, na.rm = T),mean(attr1_1_rankM$amb1_1.1, na.rm = T),mean(attr1_1_rankM$shar1_1.1, na.rm = T))
+names(radardata1_1_M) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radardata1_1_M_2 <- rbind(rep(6,6) , rep(0,6) , radardata1_1_M)
+
+
+par(mfrow = c(1,2))
+radarchart(as.data.frame(radardata1_1_F_2),title="Female")
+radarchart(as.data.frame(radardata1_1_M_2),title="Male")
+
+```
+To visualize preferences of each sex, we created radar Charts, which are a way of comparing multiple quantitative variables. Radar Charts are useful for seeing which attributes are considered important by the subjects, making them ideal for comparing the importance of each attribute. Female subjects ranked "intelligent" as the most important attribute for their partner, and other attributes are almost ranked the same. Male subjects showed different patterns. They rankked "Attractive" as the most important attribute for their partner. 
+ 
+ 
+ 
+ 
+ 
  
 ```{r}
  ds1 <- d %>% group_by(`USA/International`) %>%
