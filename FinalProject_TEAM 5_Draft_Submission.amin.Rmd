@@ -1,0 +1,725 @@
+---
+output: 
+  pdf_document:
+    citation_package: natbib
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+header-includes: \usepackage{float}
+title: | 
+  | \vspace{0.5cm} \LARGE{\bf{What Makes Your Speed Dating Successful?}}
+  | \vspace{1cm} \Large{} 
+author: | 
+  | \vspace{0.1cm} Jessica Kueon, Hana Lee, Sungchan Park, and Amin Shirazi
+  | \vspace{0.1cm} Iowa State University
+  | \vspace{0.1cm} Department of Statistics
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+abstract: "Today, speed dating is one of the most popular means of meeting new people and making new dates.  The reason is that in speed dating is safer and there is less pressure and less time consuming compared to a normal first date. However, a strict time limit makes it hard to find out what people expect when they get acquainted with someone from the opposite sex.  Therefore, it would be crucial and imperative to figure out what factors make speed dating successful. In this report, some effective attributes on making a new date through speed dating are taken into consideration and it turns out that women and men's criteria about choosing a date differ in speed dating."  
+
+geometry: margin=1in
+fontfamily: mathptmx
+fontsize: 11pt
+spacing: single
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(gridExtra)
+library(rstan) #rstan::extract
+library(ggrepel)
+library(GGally)
+library(knitr)
+Plot.log.rate <- iris
+```
+
+```{r include = FALSE}
+library(tidyverse)
+d <- read.csv("SpeedDating.csv")
+
+d <- d %>% filter(wave %in% c(1:5, 7:11, 13:15, 17)) #Remove some waves as in the paper
+
+d <- d %>% mutate(new.wave = if_else(wave %in% 7:11, wave - 1,
+                                if_else(wave %in% 13:15, wave -2,
+                                        if_else(wave == 17, wave -3, as.double(wave)))))
+
+d %>%  select(wave, new.wave) %>% table()
+
+d <- d %>% mutate(wave = new.wave) %>%
+  select(-new.wave)
+
+#################d is the final data currently###############################
+
+length(unique(d$iid))
+
+temp <- d %>% group_by(wave, gender, id) %>%
+  summarise(n = n())
+
+View(temp%>% filter(wave == 5))
+
+temp1 <- d %>% group_by(wave, id, gender) %>% 
+  summarise(n = n())
+
+View(temp1 %>% filter(wave == 2))
+
+
+(summary <- d %>% group_by(wave, id, gender, idg) %>%
+  summarise(n = n()) %>%
+  ungroup(wave, id, gender, idg) %>%
+  select(wave, gender, n) %>%
+  group_by(wave, gender) %>%
+  count() %>%
+  spread(gender, nn))
+
+sum(summary$`0`, summary$`1`)
+
+
+t1 <- d %>% group_by(wave, gender, iid) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) #Individual level
+View(t1)
+
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar() #Distribution of gender by wave
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar(position = "fill") #Distribution of gender by wave
+d %>% group_by(gender, iid) %>%
+  count() %>%
+  ggplot(aes(x = factor(gender))) + geom_bar()
+
+t1 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`)) + geom_boxplot() + facet_grid(factor(gender)~.) 
+
+t1 %>% ggplot(aes(x = factor(gender), y = `percentage of yes`)) + geom_boxplot() + facet_grid(.~factor(wave)) 
+
+t2 <- d %>% group_by(wave, gender) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) #Wave level
+t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`, 
+                  group = factor(gender), shape = factor(gender), color = factor(gender))) +
+  geom_point() + geom_line() + ylim(c(0, 70))
+
+d %>% filter(dec_o == 1) %>%
+  group_by(wave) %>%
+  ggplot(aes(x = factor(dec_o), fill = factor(gender))) + geom_bar(position = "fill") + facet_grid(.~ wave)
+
+```
+
+
+```{r include = FALSE}
+# maps::map("world", fill=TRUE, col="white", bg="lightblue", ylim=c(-60, 90), mar=c(0,0,0,0))
+
+ABB <- read.csv("ABB.csv")
+map.world <- map_data("world")
+
+map.region.tmp <- map.world %>% 
+  select(region) %>%
+  mutate(region = as.character(region)) %>%
+  unique()
+
+ABB.region.tmp <- ABB %>% 
+  mutate(region = as.character(ABB)) %>%
+  select(region) %>% 
+  unique()
+
+R.ABB <- as.data.frame(state.abb) %>%
+  mutate(region = as.character(state.abb)) %>%
+  select(region)
+
+## 1. To check if there is non-matching STATE names in ABB and state.abb (in datasets)
+
+ABB.region.tmp %>% anti_join(R.ABB, by = "region")
+
+R.ABB[51:52,] <- c("DC", "PR") #Add DC and PR to the list of 50 states in USA
+
+
+## 2. To create `USA/International` variable in the dataset d
+fun.ABB <- function(d1){
+ifelse(d1 %in% c("NA"), "NA",
+         ifelse(d1 %in% R.ABB[,1], "USA", "International"))
+}
+
+d <- d %>% left_join(ABB %>% select(-No) %>% unique(), by = "from") %>% 
+  mutate(`USA/International` = if_else(is.na(ABB) == FALSE, fun.ABB(as.character(ABB)), as.character(NA)),
+         ABB = if_else(is.na(ABB) == FALSE, as.character(ABB), as.character(NA)),
+         Country = if_else(`USA/International` == "USA", "USA", ABB))
+
+## 3. To check if there is non-matching COUNTRY names in ABB and map_data (in ggplot2)
+
+d %>% filter(Country != "USA") %>%
+  mutate(region = ABB) %>%
+  select(region) %>% 
+  unique() %>% 
+  anti_join(map.region.tmp, by = "region")
+
+# Adjust two country names
+d <- d %>% mutate(ABB = if_else(ABB == "Yugoslavia", "Montenegro", ABB),
+                  ABB = if_else(ABB == "Hong Kong", "China", ABB),
+                  Country = if_else(`USA/International` == "USA", "USA", ABB),
+                  region = Country) # To match country names in map_data, and our file
+```
+
+```{r include = FALSE}
+sub.d <- d %>% select(`USA/International`, Country, region) %>%
+  unique() %>%
+  mutate(`If the country is in the SpeedDating dataset` = "Yes")
+
+map.world.d <- map.world %>% 
+  left_join(sub.d, by = "region") 
+
+map.world.d %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = Country)) +
+  geom_polygon() +
+  xlab("Longitude") +
+  ylab("Latitude")
+
+library(plotly)
+#ggplotly()
+
+```
+
+```{r include = FALSE}
+#To create pdec_o, pfrom, pfield, pfield_cd, pcareer, pcareer_c
+for(i in 1:dim(d)[1]){
+  d$pdec_o[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       NA,
+                       d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "dec_o"])
+ 
+  d$pfrom[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                      as.character(NA),
+                      as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "from"]))
+  
+  d$pfield[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       as.character(NA),
+                       as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field"]))
+  
+  d$pfield_cd[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field_cd"])
+  
+  d$pcareer[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                        as.character(NA),
+                        as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career"]))
+
+  d$pcareer_c[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career_c"])
+}
+
+d <- d %>% mutate(pfrom = as.factor(pfrom),
+                  pcareer = as.factor(pcareer),
+                  pfield = as.factor(field))
+
+d%>%select(field_cd) %>% summary()
+```
+
+
+
+```{r include = FALSE}
+m <- matrix(1.5, 6, 6)
+
+for(i in 1:6){
+  for(j in 1:6){
+    m[i,j] <- nrow(filter(d, race==i, race_o==j, match==1))/
+      nrow(filter(d, race==i, race_o==j))
+  }
+}
+
+library(reshape2)
+melted_m <- melt(m)
+head(melted_m)
+melted_m %>%
+  ggplot(aes(x=Var1, y=Var2, fill=value)) + geom_tile()
+
+f <- matrix(1.5, 17, 17)
+f1 <- matrix(1.5, 17, 17)
+f2 <- matrix(1.5, 17, 17)
+
+for(i in 1:17){
+  for(j in 1:17){
+    f[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    
+    if(i >= j)
+    f1[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    else f1[i,j] <- NA
+    
+    if(i < j)
+    f2[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    else f2[i,j] <- NA
+    
+  }
+}
+
+melted_f1 <- melt(f1)
+melted_f2 <- melt(f2)
+melted_f1 <- melted_f1 %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
+melted_f2 <- melted_f2 %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
+
+field_cd.levels <- 
+  c("Law (1)",
+    "Math (2)",
+    "Social Science, Psychologist (3)",
+    "Medical Science, Pharmaceuticals, and Bio Tech (4)",
+    "Engineering (5)",
+    "English/Creative Writing/ Journalism (6)",
+    "History/Religion/Philosophy (7)",
+    "Business/Econ/Finance (8)",
+    "Education, Academia (9)", 
+    "Biological Sciences/Chemistry/Physics (10)",
+    "Social Work (11)",
+    "Undergrad/undecided (12)",
+    "Political Science/International Affairs (13)",
+    "Film (14)",
+    "Fine Arts/Arts Administration (15)",
+    "Languages (16)",
+    "Architecture (17)")
+
+levels(melted_f1$Var2) <- field_cd.levels
+levels(melted_f2$Var2) <- field_cd.levels
+
+ggplot(data = melted_f1, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + geom_text(aes(label = round(value, 2))) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  xlab("Subejct's interesting field of study") +
+  ylab("Partner's interesting field of study")
+
+ggplot(data = melted_f2, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + geom_text(aes(label = round(value, 2))) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  xlab("Subejct's interesting field of study") +
+  ylab("Partner's interesting field of study")
+
+```
+
+```{r include = FALSE}
+#d %>% select(iid) %>% unique() %>% dim() #400 respondents
+#d %>% select(iid, goal) %>% unique() %>% dim() #400 respondents
+
+d %>% group_by(iid, gender) %>%
+  summarise(goal = mean(goal, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(goal))) + geom_bar() + facet_grid(.~gender)
+
+d %>% group_by(iid) %>%
+  select(exphappy) %>%
+  summarise(exphappy = mean(exphappy, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(exphappy))) + geom_bar()
+
+d %>% group_by(iid) %>%
+  select(expnum) %>%
+  summarise(expnum = mean(expnum, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(expnum))) + geom_bar()
+
+d %>% group_by(iid, gender) %>%
+  summarise(expnum = mean(expnum, na.rm = TRUE)) %>%
+  left_join(d %>% group_by(iid, gender) %>% summarise(actual.num = sum(dec_o)), by = "iid") %>%
+  ggplot(aes(x = expnum, y = actual.num, colour = factor(gender.x))) + geom_jitter()
+
+d %>% group_by(iid, gender, samerace) %>%
+  summarise(imprace = mean(imprace, na.rm = TRUE)) %>%
+  left_join(d %>% group_by(iid, gender) %>% summarise(actual.rate = sum(dec_o)/n()), by = "iid") %>%
+  ggplot(aes(x = imprace, y = actual.rate, colour = factor(gender.x))) + geom_jitter() + facet_grid(.~samerace)
+  
+```
+
+# 1. Introduction
+Marriage has always been an important decision to be made in anyone's life which has a long and complicated process. This process usually starts with a promising date and after enough cognition it may or may not end in a marriage. This starting point, finding a good date whose attributes meet your criteria is what is discussed in this report. The analysis will demonstrate that women and men have dissimilar pereferences while choosing a partner. 
+Speed dating dataset provides with the exciting opportunity to explore a collection of information regarding peoples' preferences when seeking for a potential romantic partner. Ever since the first speed dating event was initiated in 1998[^1], speed dating has rapidly become one of popular means of meeting a potential date.  Major reasons for popularity of a speed dating is that it is convenient, affordable and effective compared to traditional way of meeting a potential partner. Hence, more and more people are switching to this kind of less traditional way of finding a date.
+ 
+ Apparently this phenomenon makes speed dating a huge business, still, the mechanism behind people's selection is not fully understood and there have been a lot of frustrations about it. There has been a number of studies to investigate how this "instant attraction" works, and the most famous study on this matter was conducted R Fisman, SS Iyengar, et al (2006). By exploring the dataset, we focus on gender differences and demographic information collected from the subjects to examine is there any significant distinctions in gender's preferences. 
+ 
+ This report will proceed as follows: in Section 2, the contents of the raw data, the earlier studies and the steps that were required to clean/format the dataset will be described. Section 3 examines the variables collected from the study and provide detailed analysis on the noteworthy factors to make people find a match in speed dating. The report then will be followed by conclusion and the  summary of the main results. 
+#what we have found and offering ideas for future studies. 
+ 
+
+[^1]: "The History of Speed Dating". Dating Price Guide.
+
+# 2. Data
+
+## 2.1 Description of Data and Source
+ The raw dataset is from the flowingdata homepage[^2]. Original research was conducted on 552 students in graduate and professional schools at Columbia University. Researchers hosted the speed dating event and recruited the subjects through mass-email and fliers, and volunteers signed up for an online dating website and filled out a pre-event survey. They hosted 21 speed dating sessions (7 omitted in the final paper) by blinding the subjects of the partners they would be meeting at the event. Each speed date was 4 minutes long. After each date, the male subjects rotate to the next position while female subjects remained in their seats throughout the event. Also, the subjects filled out the survey questions on rating of themselves and their partners on several dimension, and instructed to say "yes" or "no" to see if a subject would like a contact information for a partner. If both subjects say "yes", the researchers defined it as a "match", if not, "non-match"[^3]
+
+[^2]: https://flowingdata.com/2008/02/06/speed-dating-data-attractiveness-sincerity-intelligence-hobbies/)
+[^3]: For details on the variables and data collection please see the original paper.
+
+ The original paper is highly focused on building regression models to examine the relationship among variables. Instead, we hope to reconfirm the conclusions made in the original paper, but also focus on other aspects were not covered in the original research.
+ 
+ Before deving into variable discriptions, it is useful to clarify the difference between  the "subjects" and "partners" in the study. A subject is the one who filled out the at the end of each session and rated the women (men) that  he (she) had met in the session which are called partners in the study. For instance, there are 10 male and 9 female participants in session 5. Therefore, all 10 male subjects met 9 female partners and all 9 female subjects met all 10 male partners. In other words, identifying subject or partner in each session depends on the iid of the person the person's gender, a subjcet in a session is someone from the other gender's partner. 
+ 
+ There are two variables that contain identification information on each subject. `iid` refers to unique subject number, and `id` for subject number within each session. `id` was used to analyze the subjects in each session. `wave` represents each speed dating event which is referred as "session" throughout this report. Also, information on partner at each speed dating event were frequently analyzed. `pid` is for each partner's `iid` number, and `age_o` for age of partner. The most important variables are `dec_o` to indicate whether or not the subject wanted a contact information of a partner, and `match` is 1 if both subjects said "yes" in `dec_o`,  if not, it is assigned 0. Alongside the Yes or No decisions, there are six attributes on which the participants were asked to rate his or her partner: Attractiveness, Sincereness, Intelligence, Fun, Ambition and Shared Interests. 
+ In this report, each subject's field of study (`field_cd`) or racial background (`race`) will be also considered to see if they affect a subject's decision on a particular partner. 
+
+
+ 
+## 2.2 Data Cleaning/Formatting
+ The raw dataset was downloaded in a csv file with 195 columns and 8378 rows. It contains dataset of 21 speed dating sessions; however, in the original paper, seven sessions  were omitted due to different study design or insufficient number of subjects. To be consistent with the original findings, we shaped the data by removing information from omitted sessions. Since the paper is not specific about which sessions were omitted, we compare and contrast the information from two documents, the paper and the description on key variables. After the process, the modified dataset contains 195 columns and 6266 rows.
+ 
+ Another formatting was required to visualize each subject's origin information, since the responses for "from" variable is considered "messy" as the example below.
+
+```{r echo = FALSE}
+as.character(unique(read.csv("SpeedDating.csv")$from))[c(5, 10, 13, 15, 35, 39, 66, 104)]
+```
+
+ There was no automated process to clean the messy dataset since every observation has to be examined. Therefore, the data set was extracted as an excel file and the variable from was reshaped to a new variable `ABB` which shows the  abbreviation of where each individual were from in the study. More data reshaping was conducted to extract the international diversity of the participants. Additionally, since the majority of the participants were from the US, one more varibale was introduced in the data set to explore the US or Non-US participants.
+ 
+ One more data cleaning was done in the data set to in order to do more analysis on the data for the purpose of this report. As mentioned earlier, not many variables were analyzed in the original paper, but they will be taken under analysis in this report. The information about subjects' originality and their field of study as well as their favorite future career is already in the data set. But, there is no direct information about their partners' originality, field of study and favorite future career. Therefore, more data cleaning was performed based on the variables `iid` and `pid` to match all subjects and partners' info. The new variables are `pfrom`, `pfield_cd` and  `pcareer`. The variable `pdec` is also  an indicator of each subject's decision on every individual partner they met in each session. If the subject decided to go on a second date with a partner, the answer would be one and zero otherwise[^4].
+ 
+[^4]:   The separate variables of subject and partner's decision are already in the data as `dec` and `dec_o` respectively. `pdec` is just a renamed new variable for the ease of coding in this report. 
+
+# 3. Analysis
+
+## 3.1 Descriptive Analysis
+ The first thing to do is simply some descriptive statistics to explore how overall data looks like. As mentioned earlier, there might not be the same number of male and female participants in each wave (session), so it draws the attention to see how many individuals of each gender there are in each session. The following figures (figure 1 and 2) show the frequency of individual sex in each session. 
+ 
+```{r fig.cap = "Distribution of gender by session", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar() #Distribution of gender by wave
+```
+
+ Figure 1 might not provide us with an overall view of gender participants in all the fourteen sessions. To get better understanding of the proportion of individual gender in each session, the scaled proportion is shown below in a barchart. As seen in the barchart, except a small difference in the number of male and female participants in each session, the proportion of participants are almost the same in each session.
+
+```{r fig.cap = "Distribution of gender by session", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar(position = "fill") #Distribution of gender by wave
+```
+
+ The graph above illustrates proportion of each gender by each speed dating event. the proportion of each gender are somewhat similar throughout the events, but some of the events have unequal proportion of men and women. It would be interesting to see if this imbalance of proportion of gender have any infludence on their dating choices. 
+
+
+## 3.2 Diversity of the originality of the participants
+
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H', warning = FALSE}
+
+sub.d <- d %>% select(`USA/International`, Country, region) %>%
+  unique() %>%
+  mutate(`If the country is in the SpeedDating dataset` = "Yes")
+
+map.world.d <- map.world %>% 
+  left_join(sub.d, by = "region") 
+
+worldmap <- map.world.d %>% ggplot(aes(x = long, y = lat, group = group, fill = Country)) + geom_polygon() 
+nppl_world <- d %>% distinct(iid, .keep_all = TRUE) %>% group_by(Country) %>% summarise(total = length(Country)) %>% mutate(name = Country )
+capital <- read.csv("longlat.csv")
+test4 <- capital %>% left_join(nppl_world, by = "name")
+test5 <- test4 %>% left_join(map.world.d, by = c("name" = "region")) %>% distinct(name, .keep_all = TRUE)
+
+test5$Country <- test5$Country.y
+
+
+worldmap + geom_point(aes(x = as.numeric(Longitude), y = as.numeric(Latitude), size = total), data = test5)
+
+```
+
+ The plot above illustrates the number of subjects by their origin. Larger bubble indicates more subjects are from the location. Grey areas indicate that no subjects are from the region. It is noticeable that most of the subjects are from United States, but the plot also shows that subjects are from various, different countries. We decided to narrow the region, to look at the distribution of subjects within United States.
+
+
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H', warning = FALSE}
+
+state <- read.csv("statell22.csv")
+states <- map_data("state")
+
+sub.d2 <- d %>% filter(Country == "USA") %>% select(ABB) %>%
+  unique() %>%
+  mutate(`If the state is in the SpeedDating dataset` = "Yes")
+
+sub.d2$ABB2 <- sub.d2$ABB
+
+
+
+
+abb2 <- state %>% select(State, City)
+abb2$City <- tolower(abb2$City)
+
+
+usstate <- states %>% left_join(abb2, by = c("region" = "City")) 
+map.US.d <- usstate %>% 
+  left_join(sub.d2, by = c("State" = "ABB")) 
+
+
+map1 <- map.US.d %>% ggplot(aes(x = long, y = lat, group = group, fill = ABB2)) + geom_polygon(colour = "grey")
+nppl <- d %>% distinct(iid, .keep_all = TRUE) %>% filter(region == "USA") %>% group_by(ABB) %>% summarise(total = length(ABB))
+                                          
+
+mapstate <- state %>% right_join(nppl, by = c("State" = "ABB") )
+
+test <- mapstate %>% left_join(map.US.d, by = "State") %>% distinct(State, .keep_all = TRUE)
+                                                             
+
+
+## Try that to the colorful map
+
+map1 +geom_point(aes(x = Longitude, y = Latitude, size = total), data = test, alpha = .5) + xlim(-130, -60) + ylim(18, 55)
+
+
+```
+
+ US subjects' origin is concentrated in highly-populated states such as California, New York or New Jersey. We can also conclude that subjects within US are also diverse, more than 33 states. 
+
+## 3.3 Analysis on Gender Preference
+ As mentioned in the introduction and in the variable description, at the end of each session, each participant made a decision about the partners they met in the four-minute conversation they had. The data is gathered as an indicator if they had something in common with that partner so that they would like to go on another date with. One may say that an important criterion of deciding on having a second date with somebody might be if the partner is the same age as the subject. So, it is called into question if the proportion of decision to go on a second date is affected as the difference in the age of the subject and partner increases. Figure 3 indicates the frequency of the participant's age difference categorized by their gender. As can be seen, most of the participants are the same age with the opposite gender.  If we ignore the big age differences between them, it will be concluded that age difference does not influence one's decision in this study on going on another date. Figure 4 shows no marked difference in the chance of deciding on another date among genders with different age difference. 
+
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+d <-d %>% mutate(age_diff = abs(age_o-age))
+d %>% mutate(age_diff2 = age_o-age) %>%
+group_by(gender, age_diff2) %>% summarise(dec3 = n()) %>%
+ggplot(aes(x = factor(age_diff2), y = as.numeric(dec3))) + geom_bar(stat="identity")+ facet_grid(gender~.)
+```
+
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+d %>% mutate(age_diff2 = age_o-age) %>%
+group_by(gender, age_diff2) %>% summarise(dec3 = n(), dec4=sum(dec_o)/n()) %>%filter(abs(age_diff2) <8)%>%
+ggplot(aes(x = factor(age_diff2), y = as.numeric(dec4))) + geom_bar(stat="identity")+ facet_grid(gender~.)
+```
+
+ The variable "dec_o" which presents the partner's answer to going on another date, if was asked by the subject, plays an important rule in the data analysis of this study. The same story about the variable "dec", which is the subject's answer. Taking this into account, we are interested in figuring out what percentage of each gender in each session accepted to go on a second date and then identify the potential reasons of high or low acceptance rate in each session. Next, some analysis in the percentage of deciding on going on another date is taken into consideration based on different sessions and the gender. This can help on getting more details on sessions and explore if people in each one had the same interest in meeting the opposite gender again.
+ 
+ To compare participants' interest in meeting the opposite gender in each session for another time, the variable "dec" is used, which is the subject's decision on meeting the partner again. *Figure 5* demonstrates how interest the participants were to go on a second date with the opposite sex they had met in the session. The more difference in the male and female's percentage of yes in each session shows that one gender was more interested in going on a second date, but the other one was not. For instance, in session two, about half male participants wanted to meet females, but less than 30% of female did want that. 
+ 
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+t2 <- d %>% group_by(wave, gender) %>%
+          summarise(`percentage of yes` = 100 * mean(dec),
+           `percentage of match` = 100 * mean(match),
+           `# of meeting` = n()) #Wave level
+t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`, 
+                  group = factor(gender), shape = factor(gender), color = factor(gender))) +
+  geom_point() + geom_line() + ylim(c(0, 70))
+```
+
+ Large difference in the percentage of male and female participants to go on another date can be considered through the number of people in that session. As a result of the original paper, male selectivity is invariant to group size, while female selectivity is strongly increasing in group size. Once again, the group size of each session based on the gender is plotted on the right plot above. When comparing the group size of each session, it is noticeable that the more crowded sessions (sessions 2,4,6,8,10 and 12) cause the bigger differences in the percentage of making a decision to go on a second date. Therefore, the difference in that percentage among men and women is marked in the left plot. This result is consistent with the result of the original paper. 
+ 
+ 
+ 
+ 
+```{r}
+ ds1 <- d %>% group_by(`USA/International`) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) 
+ds1 %>% ggplot(aes(x = factor(`USA/International`), y = `percentage of match`)) +
+  geom_point() +
+  ylim(c(0, 30))
+```
+
+## 3.4 Race/Field of Study/Career
+### Matching Analysis by Races
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+for(i in 1:dim(d)[1]){
+  d$pdec_o[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       NA,
+                       d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "dec_o"])
+  
+  d$pfrom[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                      as.character(NA),
+                      as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "from"]))
+  
+  d$pfield[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       as.character(NA),
+                       as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field"]))
+  
+  d$pfield_cd[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field_cd"])
+  
+  d$pcareer[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                        as.character(NA),
+                        as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career"]))
+  
+  d$pcareer_c[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career_c"])
+  d$imprace2[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       NA,
+                       d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "imprace"])
+  d$imprelig2[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       NA,
+                       d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "imprelig"])
+}
+
+d <- d %>% mutate(pfrom = as.factor(pfrom),
+                  pcareer = as.factor(pcareer),
+                  pfield = as.factor(field))
+
+race.match <- matrix(1.5, 4, 4)
+for(i in c(1:4)){
+  for(j in c(1:4)){
+    race.match[i,j] <- nrow(filter(d, race==i, race_o==j, match==1))/
+      nrow(filter(d, race==i, race_o==j))
+  }
+}
+race.match
+
+race.dec_o.f <- matrix(1.5, 4, 4)
+for(i in c(1:4)){
+  for(j in c(1:4)){
+    race.dec_o.f[i,j] <- nrow(filter(d, gender==0, race==i, race_o==j, dec_o==1))/
+      nrow(filter(d, gender==0, race==i, race_o==j))
+  }
+}
+race.dec_o.f
+
+race.dec_o.m <- matrix(1.5, 4, 4)
+for(i in c(1:4)){
+  for(j in c(1:4)){
+    race.dec_o.m[i,j] <- nrow(filter(d, gender==1, race==i, race_o==j, dec_o==1))/
+      nrow(filter(d, gender==1, race==i, race_o==j))
+  }
+}
+race.dec_o.m
+
+race.dec_o.m > race.dec_o.f
+d %>% filter(gender==0, dec_o==1) %>% nrow() / d %>% filter(gender==0) %>% nrow()
+d %>% filter(gender==1, dec_o==1) %>% nrow() / d %>% filter(gender==1) %>% nrow()
+
+``` 
+
+Black/African American=1, European/Caucasian-American=2, Latino/Hispanic American=3,
+Asian/Pacific Islander/Asian-American=4, Native American=5, 
+Other=6
+
+First we can see what happened when people in the same race category met. Match proportion among African American are 62.5% which is tremendously high. More specifically, Black men always got yes from black women while only 62.5% of black women got yest from. On the other hand, match proportion among Asian American are the least, about 10%. 
+
+African American and Latino/Hispanic American combination has the higest match proportion, 23.1% among inter-race combinations while European American and Latino/Hispanic American has the lowest match proportion.  
+
+Usually women get more yes (in proportion) than men did. (women 49.5% vs men 36.0%)
+Black men-Black women and Black men-Latino women are only cases that men got more (in proportion) yes than women did.
+
+
+### Matching Analysis by Field of Study
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+check <- c(rep(-1.5,18));check
+for (i in 1:18){
+  check[i] <- d %>% filter(field_cd==i) %>% nrow()
+}
+check
+# There is no data whose race value is 18(it means the subject's field of study is "Other")
+
+check.f <- c(rep(-1.5,18));check.f
+for (i in 1:18){
+  check.f[i] <- d %>% filter(gender==0, field_cd==i) %>% nrow()
+}
+check.f
+ 
+check.m <- c(rep(-1.5,18));check.m
+for (i in 1:18){
+  check.m[i] <- d %>% filter(gender==1, field_cd==i) %>% nrow()
+}
+check.m
+
+checkmatrix <- rbind(check, check.f, check.m); checkmatrix
+
+field.match <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    field.match[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+  }
+}
+field.match
+
+field.dec_o.f <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    field.dec_o.f[i,j] <- nrow(filter(d, gender==0, field_cd==i, 
+                                      pfield_cd==j, dec_o==1))/
+      nrow(filter(d, gender==0, field_cd==i, pfield_cd==j))
+  }
+}
+field.dec_o.f
+
+field.dec_o.m <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    field.dec_o.m[i,j] <- nrow(filter(d, gender==1, field_cd==i, 
+                                      pfield_cd==j, dec_o==1))/
+      nrow(filter(d, gender==1, field_cd==i, pfield_cd==j))
+  }
+}
+field.dec_o.m
+
+field.dec_o.m <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    field.dec_o.m[i,j] <- nrow(filter(d, gender==1, field_cd==i, 
+                                      pfield_cd==j, dec_o==1))/
+      nrow(filter(d, gender==1, field_cd==i, pfield_cd==j))
+  }
+}
+field.dec_o.m
+
+field.dec_o.m > field.dec_o.f
+
+``` 
+
+ We have interesting results when we see match proportion of each combination of fields of study. At first, some combinations shows high match proportions: 
+Law-Language(100%), History/Religion/Philosophy-Social Work(80%), History/Religion/Philosophy-Law(60%), History/Religion/Philosophy-English/Creative Writing/Journalism(50%). Especially, History/Religion/Philosophy group showed higher match proportion with relatively many groups.
+
+ People studying math seemed that they would not like to go on the next date with each other. Interestingly, females studying math got 100% yes from males studying math while no male studying math got a yes from any female studying math. 
+
+ It is shown from above that man studying Law or man studying Film were popular.
+
+###  Matching Analysis by Career
+```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+carcheck <- c(rep(-1.5,18));carcheck
+for (i in 1:18){
+  carcheck[i] <- d %>% filter(field_cd==i) %>% nrow()
+}
+carcheck
+# There is no data whose race value is 18(it means the subject's Career is "Other")
+
+carcheck.f <- c(rep(-1.5,18));carcheck.f
+for (i in 1:18){
+  carcheck.f[i] <- d %>% filter(gender==0, field_cd==i) %>% nrow()
+}
+carcheck.f
+
+carcheck.m <- c(rep(-1.5,18));carcheck.m
+for (i in 1:18){
+  carcheck.m[i] <- d %>% filter(gender==1, field_cd==i) %>% nrow()
+}
+carcheck.m
+
+carcheckmatrix <- rbind(carcheck, carcheck.f, carcheck.m); carcheckmatrix
+
+career.match <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    career.match[i,j] <- nrow(filter(d, career_c==i, pcareer_c==j, match==1))/
+      nrow(filter(d, career_c==i, pcareer_c==j))
+  }
+}
+career.match
+
+career.dec_o.f <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    career.dec_o.f[i,j] <- nrow(filter(d, gender==0, career_c==i, 
+                                       pcareer_c==j, dec_o==1))/
+      nrow(filter(d, gender==0, career_c==i, pcareer_c==j))
+  }
+}
+career.dec_o.f
+
+career.dec_o.m <- matrix(1.5, 17, 17)
+for(i in c(1:17)){
+  for(j in c(1:17)){
+    career.dec_o.m[i,j] <- nrow(filter(d, gender==1, career_c==i, 
+                                       pcareer_c==j, dec_o==1))/
+      nrow(filter(d, gender==1, career_c==i, pcareer_c==j))
+  }
+}
+career.dec_o.m
+
+career.dec_o.m > career.dec_o.f
+
+``` 
+
+ Both Men and women whose intended career is a lawyer are relatively popular. People who want to work on Banking/Consulting/Finance/Marketing/Business/CEO/Entrepreneur/Admin areas are generally popular to their partners. However, especially for women this tendancy looks a little bit stronger. Interestingly, women whose career goal is an athlete got very high proportions of yes from men with various career goals.
+
+
+# 4. Results
+
+
+
