@@ -490,7 +490,20 @@ t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`,
 
  Large difference in the percentage of male and female participants to go on another date can be considered through the number of people in that session. As a result of the original paper, male selectivity is invariant to group size, while female selectivity is strongly increasing in group size. Once again, the group size of each session based on the gender is plotted on the right plot above. When comparing the group size of each session, it is noticeable that the more crowded sessions (sessions 2,4,6,8,10 and 12) cause the bigger differences in the percentage of making a decision to go on a second date. Therefore, the difference in that percentage among men and women is marked in the left plot. This result is consistent with the result of the original paper. 
  
+ As it was discussed in the descriptive analysis, participants in the study were from different nationalities. Since the majority of them were from the US, it is worth considering what percentage of American or international participants were successful to find someone to date with.  
  
+ 
+ ```{r fig.cap = " ", fig.width=5, fig.height=2.5, echo=FALSE, fig.pos='h',out.height = "2.5in",fig.align='center',fig.pos = 'H'}
+ ds1 <- d %>% group_by(`USA/International`) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) 
+ds1 %>% ggplot(aes(x = factor(`USA/International`), y = `percentage of match`)) +
+  geom_point() +
+  ylim(c(0, 30))
+```
+ Based on the plot, there was not a big difference in the percentage of match among US or international students. Around 15 % of the international participants could find some matches in the whole study, and this rate is just a little more for the American students.
+
  
  ```{r echo = FALSE}
 
