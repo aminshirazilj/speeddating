@@ -515,16 +515,51 @@ ds1 %>% ggplot(aes(x = factor(`USA/International`), y = `percentage of match`)) 
 
  
 ```{r echo = FALSE}
+library(tidyverse)
 
 
-library(fmsb)
-## mean the rank?
+##############RADAR PLOT CODES
+
+
+
+
+## Create rank variable
+
 dunique1_1<- d %>% distinct(iid, .keep_all = TRUE)%>%select(iid,gender,attr1_1,sinc1_1,intel1_1,fun1_1,amb1_1,shar1_1)
 dunique1_1$gender <- as.factor(dunique1_1$gender)
 attr1_1_rank_1 <- data.frame(dunique1_1, t(apply(dunique1_1[-(1:2)], 1, rank, ties.method = "min")))
+attr1_1_rank_11 <- data.frame(dunique1_1, t(apply(-dunique1_1[-(1:2)], 1, rank, ties.method = "min")))
 
 
+### 1.  Radar plot by indicator variable
 
+id1<- attr1_1_rank_11 %>% mutate(attr1_1.1id = ifelse(attr1_1.1 == 1, 1, 0)) %>% mutate(sinc1_1.1id = ifelse(sinc1_1.1 == 1, 1, 0)) %>% mutate(intel1_1.1id = ifelse(intel1_1.1 == 1, 1, 0)) %>% mutate(fun1_1.1id = ifelse(fun1_1.1 == 1, 1, 0)) %>% mutate(amb1_1.1id = ifelse(amb1_1.1 == 1, 1, 0)) %>% mutate(shar1_1.1id = ifelse(shar1_1.1 == 1,1,0)) %>% select(gender,attr1_1.1id,sinc1_1.1id, intel1_1.1id,fun1_1.1id, amb1_1.1id, shar1_1.1id)
+
+## Dataset for women
+
+womenid <- id1 %>% filter(gender == 0) %>% summarise_all(funs(sum))
+radarwomen <- womenid/(rowSums(womenid[,c("attr1_1.1id", "sinc1_1.1id","intel1_1.1id", "fun1_1.1id", "amb1_1.1id", "shar1_1.1id")]))
+radarwomen <- radarwomen %>% select(-gender)
+names(radarwomen) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radarwomen2 <- rbind(rep(1,6) , rep(0,6) , radarwomen)
+radarchart(as.data.frame(radarwomen2),title="Female")
+
+
+## Dataset for men
+menid <- id1 %>% filter(gender == 1) %>% summarise_all(funs(sum))
+radarmen <- menid/(rowSums(menid[,c("attr1_1.1id", "sinc1_1.1id","intel1_1.1id", "fun1_1.1id", "amb1_1.1id", "shar1_1.1id")]))
+radarmen <- radarmen %>% select(-gender)
+names(radarmen) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radarmen2 <- rbind(rep(1,6) , rep(0,6) , radarmen)
+
+par(mfrow = c(1,2))
+radarchart(as.data.frame(radarwomen2),title="Female")
+radarchart(as.data.frame(radarmen2),title="Male")
+
+```
+
+```{r}
+### 2. RADAR PLOT MEAN THE RANK
 
 ### FEMALE
 
