@@ -1,0 +1,560 @@
+---
+title: "What Makes Your Speed Dating Successful?"
+subtitle: ""
+author: "Jessica Kueon, Hana Lee, Sungchan Park, and Amin Shirazi"
+date: "`r Sys.Date()`"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r include=FALSE}
+library(tidyverse)
+library(gridExtra)
+library(rstan) #rstan::extract
+library(ggrepel)
+library(GGally)
+library(knitr)
+Plot.log.rate <- iris
+```
+
+```{r include = FALSE}
+library(tidyverse)
+d <- read.csv("SpeedDating.csv")
+
+d <- d %>% filter(wave %in% c(1:5, 7:11, 13:15, 17)) #Remove some waves as in the paper
+
+d <- d %>% mutate(new.wave = if_else(wave %in% 7:11, wave - 1,
+                                if_else(wave %in% 13:15, wave -2,
+                                        if_else(wave == 17, wave -3, as.double(wave)))))
+d$gender<-factor(d$gender, labels = c("Female", "Male"))
+
+d %>%  select(wave, new.wave) %>% table()
+
+d <- d %>% mutate(wave = new.wave) %>%
+  select(-new.wave)
+
+#################d is the final data currently###############################
+
+length(unique(d$iid))
+
+temp <- d %>% group_by(wave, gender, id) %>%
+  summarise(n = n())
+
+#View(temp%>% filter(wave == 5))
+
+temp1 <- d %>% group_by(wave, id, gender) %>% 
+  summarise(n = n())
+
+#View(temp1 %>% filter(wave == 2))
+
+
+(summary <- d %>% group_by(wave, id, gender, idg) %>%
+  summarise(n = n()) %>%
+  ungroup(wave, id, gender, idg) %>%
+  select(wave, gender, n) %>%
+  group_by(wave, gender) %>%
+  count() %>%
+  spread(gender, nn))
+
+sum(summary$`0`, summary$`1`)
+
+
+t1 <- d %>% group_by(wave, gender, iid) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) #Individual level
+#View(t1)
+
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar() #Distribution of gender by wave
+t1 %>% ggplot(aes(x = wave, fill = factor(gender))) + geom_bar(position = "fill") #Distribution of gender by wave
+d %>% group_by(gender, iid) %>%
+  count() %>%
+  ggplot(aes(x = factor(gender))) + geom_bar()
+
+t1 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`)) + geom_boxplot() + facet_grid(factor(gender)~.) 
+
+t1 %>% ggplot(aes(x = factor(gender), y = `percentage of yes`)) + geom_boxplot() + facet_grid(.~factor(wave)) 
+
+t2 <- d %>% group_by(wave, gender) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) #Wave level
+t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`, 
+                  group = factor(gender), shape = factor(gender), color = factor(gender))) +
+  geom_point() + geom_line() + ylim(c(0, 70))
+
+d %>% filter(dec_o == 1) %>%
+  group_by(wave) %>%
+  ggplot(aes(x = factor(dec_o), fill = factor(gender))) + geom_bar(position = "fill") + facet_grid(.~ wave)
+
+```
+
+
+```{r include = FALSE}
+# maps::map("world", fill=TRUE, col="white", bg="lightblue", ylim=c(-60, 90), mar=c(0,0,0,0))
+
+ABB <- read.csv("ABB.csv")
+map.world <- map_data("world")
+
+map.region.tmp <- map.world %>% 
+  select(region) %>%
+  mutate(region = as.character(region)) %>%
+  unique()
+
+ABB.region.tmp <- ABB %>% 
+  mutate(region = as.character(ABB)) %>%
+  select(region) %>% 
+  unique()
+
+R.ABB <- as.data.frame(state.abb) %>%
+  mutate(region = as.character(state.abb)) %>%
+  select(region)
+
+## 1. To check if there is non-matching STATE names in ABB and state.abb (in datasets)
+
+ABB.region.tmp %>% anti_join(R.ABB, by = "region")
+
+R.ABB[51:52,] <- c("DC", "PR") #Add DC and PR to the list of 50 states in USA
+
+
+## 2. To create `USA/International` variable in the dataset d
+fun.ABB <- function(d1){
+ifelse(d1 %in% c("NA"), "NA",
+         ifelse(d1 %in% R.ABB[,1], "USA", "International"))
+}
+
+d <- d %>% left_join(ABB %>% select(-No) %>% unique(), by = "from") %>% 
+  mutate(`USA/International` = if_else(is.na(ABB) == FALSE, fun.ABB(as.character(ABB)), as.character(NA)),
+         ABB = if_else(is.na(ABB) == FALSE, as.character(ABB), as.character(NA)),
+         Country = if_else(`USA/International` == "USA", "USA", ABB))
+
+## 3. To check if there is non-matching COUNTRY names in ABB and map_data (in ggplot2)
+
+d %>% filter(Country != "USA") %>%
+  mutate(region = ABB) %>%
+  select(region) %>% 
+  unique() %>% 
+  anti_join(map.region.tmp, by = "region")
+
+# Adjust two country names
+d <- d %>% mutate(ABB = if_else(ABB == "Yugoslavia", "Montenegro", ABB),
+                  ABB = if_else(ABB == "Hong Kong", "China", ABB),
+                  Country = if_else(`USA/International` == "USA", "USA", ABB),
+                  region = Country) # To match country names in map_data, and our file
+```
+
+```{r include = FALSE}
+sub.d <- d %>% select(`USA/International`, Country, region) %>%
+  unique() %>%
+  mutate(`If the country is in the SpeedDating dataset` = "Yes")
+
+map.world.d <- map.world %>% 
+  left_join(sub.d, by = "region") 
+
+map.world.d %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = Country)) +
+  geom_polygon() +
+  xlab("Longitude") +
+  ylab("Latitude")
+
+library(plotly)
+#ggplotly()
+
+```
+
+
+```{r include = FALSE}
+#To create pdec_o, pfrom, pfield, pfield_cd, pcareer, pcareer_c
+for(i in 1:dim(d)[1]){
+  d$pdec_o[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       NA,
+                       d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "dec_o"])
+ 
+  d$pfrom[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                      as.character(NA),
+                      as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "from"]))
+  
+  d$pfield[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                       as.character(NA),
+                       as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field"]))
+  
+  d$pfield_cd[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "field_cd"])
+  
+  d$pcareer[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                        as.character(NA),
+                        as.character(d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career"]))
+
+  d$pcareer_c[i] = ifelse(is.na(d$pid[i]) == TRUE,
+                          NA,
+                          d[(d$iid == d$pid[i] & d$pid == d$iid[i]), "career_c"])
+}
+
+d <- d %>% mutate(pfrom = as.factor(pfrom),
+                  pcareer = as.factor(pcareer),
+                  pfield = as.factor(field))
+
+d%>%select(field_cd) %>% summary()
+```
+
+
+
+```{r include = FALSE}
+m <- matrix(1.5, 6, 6)
+
+for(i in 1:6){
+  for(j in 1:6){
+    m[i,j] <- nrow(filter(d, race==i, race_o==j, match==1))/
+      nrow(filter(d, race==i, race_o==j))
+  }
+}
+
+library(reshape2)
+melted_m <- melt(m)
+head(melted_m)
+melted_m %>%
+  ggplot(aes(x=Var1, y=Var2, fill=value)) + geom_tile()
+
+f <- matrix(1.5, 17, 17)
+f1 <- matrix(1.5, 17, 17)
+f2 <- matrix(1.5, 17, 17)
+
+for(i in 1:17){
+  for(j in 1:17){
+    f[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    
+    if(i >= j)
+    f1[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    else f1[i,j] <- NA
+    
+    if(i < j)
+    f2[i,j] <- nrow(filter(d, field_cd==i, pfield_cd==j, match==1))/
+      nrow(filter(d, field_cd==i, pfield_cd==j))
+    else f2[i,j] <- NA
+    
+  }
+}
+
+melted_f1 <- melt(f1)
+melted_f2 <- melt(f2)
+melted_f1 <- melted_f1 %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
+melted_f2 <- melted_f2 %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
+
+field_cd.levels <- 
+  c("Law (1)",
+    "Math (2)",
+    "Social Science, Psychologist (3)",
+    "Medical Science, Pharmaceuticals, and Bio Tech (4)",
+    "Engineering (5)",
+    "English/Creative Writing/ Journalism (6)",
+    "History/Religion/Philosophy (7)",
+    "Business/Econ/Finance (8)",
+    "Education, Academia (9)", 
+    "Biological Sciences/Chemistry/Physics (10)",
+    "Social Work (11)",
+    "Undergrad/undecided (12)",
+    "Political Science/International Affairs (13)",
+    "Film (14)",
+    "Fine Arts/Arts Administration (15)",
+    "Languages (16)",
+    "Architecture (17)")
+
+levels(melted_f1$Var2) <- field_cd.levels
+levels(melted_f2$Var2) <- field_cd.levels
+
+ggplot(data = melted_f1, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + geom_text(aes(label = round(value, 2))) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  xlab("Subejct's interesting field of study") +
+  ylab("Partner's interesting field of study")
+
+ggplot(data = melted_f2, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + geom_text(aes(label = round(value, 2))) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  xlab("Subejct's interesting field of study") +
+  ylab("Partner's interesting field of study")
+
+```
+
+```{r include = FALSE}
+#d %>% select(iid) %>% unique() %>% dim() #400 respondents
+#d %>% select(iid, goal) %>% unique() %>% dim() #400 respondents
+
+d %>% group_by(iid, gender) %>%
+  summarise(goal = mean(goal, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(goal))) + geom_bar() + facet_grid(.~gender)
+
+d %>% group_by(iid) %>%
+  select(exphappy) %>%
+  summarise(exphappy = mean(exphappy, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(exphappy))) + geom_bar()
+
+d %>% group_by(iid) %>%
+  select(expnum) %>%
+  summarise(expnum = mean(expnum, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(expnum))) + geom_bar()
+
+d %>% group_by(iid, gender) %>%
+  summarise(expnum = mean(expnum, na.rm = TRUE)) %>%
+  left_join(d %>% group_by(iid, gender) %>% summarise(actual.num = sum(dec_o)), by = "iid") %>%
+  ggplot(aes(x = expnum, y = actual.num, colour = factor(gender.x))) + geom_jitter()
+
+d %>% group_by(iid, gender, samerace) %>%
+  summarise(imprace = mean(imprace, na.rm = TRUE)) %>%
+  left_join(d %>% group_by(iid, gender) %>% summarise(actual.rate = sum(dec_o)/n()), by = "iid") %>%
+  ggplot(aes(x = imprace, y = actual.rate, colour = factor(gender.x))) + geom_jitter() + facet_grid(.~samerace)
+  
+```
+
+
+
+
+
+
+
+
+
+
+### Amin Shirazi
+### Data analysis by gender
+####Important variables in a successful speeddating.
+
+  - Age
+    - Is the proportion of decision to go on a second date affected as the difference in the age of the subject and partner increases?
+    
+- Age difference may help!
+---
+class: inverse 
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=10, fig.height = 7}
+
+demo_theme <- theme(legend.position="bottom",
+        plot.title = element_text(size=30, hjust = 0.5,
+                                  margin = margin(t = 0, r = 0, b = 20, l = 0)),
+        axis.title.x = element_text(size=20),
+        axis.title.y = element_text(size=20),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        legend.title=element_text(size=16), 
+        legend.text=element_text(size=15))
+
+ 
+```
+###Age Difference
+```{r fig.cap = "Age Difference by gender", echo=FALSE, fig.pr, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=12, fig.height = 8}
+
+d <-d %>% mutate(age_diff = abs(age_o-age))
+d %>% mutate(age_diff2 = age_o-age) %>%
+group_by(gender, age_diff2) %>% summarise(dec3 = n()) %>%
+ggplot(aes(x = factor(age_diff2), y = as.numeric(dec3))) + 
+  geom_bar(stat="identity")+ facet_grid(gender~.)+
+    scale_fill_hue(name = "Gender: ", labels=c("Females", "Males")) + 
+  xlab("Age Difference") + ylab("Count") + 
+  demo_theme
+```
+---
+###Chance of finding a date
+- Ignore age differences bigger than 8.
+ 
+- Find the percentage of accepting to go on a second date.
+ 
+- Does the age difference affect making a decision for a second date?
+---
+class: inverse
+###Age Difference
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=8, fig.height = 6}
+
+d %>% mutate(age_diff2 = age_o-age) %>%
+group_by(gender, age_diff2) %>% summarise(dec3 = n(), dec4=sum(dec_o)/n()) %>%filter(abs(age_diff2) <8)%>%
+ggplot(aes(x = factor(age_diff2), y = as.numeric(dec4))) + 
+  geom_bar(stat="identity")+ facet_grid(gender~.)+
+    scale_fill_hue(name = "Gender: ", labels=c("Females", "Males")) + 
+  xlab("Age difference") + ylab("Percentage of Yes") + 
+  demo_theme
+```
+
+ - No marked difference in the chance of deciding on another date among genders with different age difference. 
+
+---
+
+###Important variables in the analysis:
+- "dec_o" and "dec"
+
+- what percentage of each gender in each session accepted to go on a second date?
+
+- What are the potential reasons of high or low acceptance rate in each session?
+
+---
+class:inverse
+###Chance of finding a date in each session.
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=12, fig.height = 8}
+
+t2 <- d %>% group_by(wave, gender) %>%
+          summarise(`percentage of yes` = 100 * mean(dec),
+           `percentage of match` = 100 * mean(match),
+           `# of meeting` = n()) #Wave level
+t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`, 
+                  group = factor(gender), shape = gender, color = gender)) +
+  geom_point() + geom_line() + ylim(c(0, 70))+ 
+   scale_fill_hue(name = "Gender: ", labels=c("Females", "Males")) + 
+  xlab("Session") + ylab("Percentage of Yes") + 
+  demo_theme
+```
+---
+class: inverse
+###Chance of finding a date in each session.
+
+
+ - Large difference in the percentage in some sessions !!
+ 
+ - Why?
+ 
+ 
+ 
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', out.width = "50%"}
+knitr::include_graphics('002.jpg')
+```
+
+---
+###Chance of finding a date in each session. 
+####Interpretation
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', out.width = "70%"}
+knitr::include_graphics('001.jpg') 
+
+```
+
+- One gender was more interested in going on a second date, but the other one was not.
+
+---
+###Chance of finding a date in each session
+####Interpretation
+
+
+ - Session 8;
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=8, fig.height = 4}
+
+t2 <- d %>% group_by(wave, gender) %>%
+          summarise(`percentage of yes` = 100 * mean(dec),
+           `percentage of match` = 100 * mean(match),
+           `# of meeting` = n()) #Wave level
+t2 %>% ggplot(aes(x = factor(wave), y = `percentage of yes`, 
+                  group = gender, 
+                  shape = gender, color = gender)) +
+  geom_point() + geom_line() + ylim(c(0, 70))+ 
+   scale_fill_hue(name = "Gender: ", labels=c("Females", "Males")) + 
+  xlab("Session") + ylab("Percentage of Yes") + 
+  demo_theme
+```
+ 
+  - About 60% of male participants decided to meet females
+  - Less than 30% of female were interested.
+ - What are possible reasons?
+
+---
+###Chance of finding a date
+####Group Size
+- Group size.
+  - Male selectivity is invariant to group size
+  - Female selectivity is strongly increasing in group size!!
+ 
+---
+class: inverse
+###Chance of finding a date
+####Group Size
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=8, fig.height = 4} 
+t1 %>%
+  ggplot(aes(x = wave, fill = gender)) + geom_bar()+scale_fill_hue(name = "Gender: ", labels=c("Females","Males")) + 
+  xlab("Session") + ylab("Count") + 
+  demo_theme
+```
+ - Crowded sessions (sessions 2,4,6,8,10 and 12)!
+ - Bigger differences in the percentage of making a decision to go on a second date by the subjects. 
+
+---
+##Nationalities
+###Who were more successfull to find a date? Americans or internationals?
+
+ - Different nationalities.
+  - The majority from the US.
+  
+ - what percentage of American or international participants were successful to find someone to date with?
+---
+class: inverse
+###Nationalities
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=10, fig.height = 6}
+
+ ds1 <- d %>% group_by(`USA/International`) %>%
+  summarise(`percentage of yes` = 100 * mean(dec_o),
+            `percentage of match` = 100 * mean(match),
+            `# of meeting` = n()) 
+ds1 %>% ggplot(aes(x = factor(`USA/International`), y = `percentage of match`)) +
+  geom_point() +
+  ylim(c(0, 30))+
+  xlab("Originality") + ylab("Percentage of finding a date") + 
+  demo_theme
+ 
+```
+---
+
+##Radar Charts
+
+- To visualize preferences of each sex.
+
+- Comparing multiple quantitative variables. 
+
+- Which attributes are considered important by the subjects. 
+
+---
+class: inverse
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center', fig.width=8, fig.height = 4}
+
+
+library(fmsb)
+## mean the rank?
+dunique1_1<- d %>% distinct(iid, .keep_all = TRUE)%>%select(iid,gender,attr1_1,sinc1_1,intel1_1,fun1_1,amb1_1,shar1_1)
+dunique1_1$gender <- as.factor(dunique1_1$gender)
+attr1_1_rank_1 <- data.frame(dunique1_1, t(apply(dunique1_1[-(1:2)], 1, rank, ties.method = "min")))
+
+
+
+
+### FEMALE
+
+attr1_1_rankF <- attr1_1_rank_1%>%filter(gender == 0)
+radardata1_1_F <- c(mean(attr1_1_rankF$attr1_1.1, na.rm = T),mean(attr1_1_rankF$sinc1_1.1, na.rm = T),mean(attr1_1_rankF$intel1_1.1, na.rm = T),mean(attr1_1_rankF$fun1_1.1, na.rm = T),mean(attr1_1_rankF$amb1_1.1, na.rm = T),mean(attr1_1_rankF$shar1_1.1, na.rm = T))
+names(radardata1_1_F) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radardata1_1_F_2 <- rbind(rep(6,6) , rep(0,6) , radardata1_1_F)
+
+
+###GUYS
+
+attr1_1_rankM <- attr1_1_rank_1%>%filter(gender == 1)
+radardata1_1_M <- c(mean(attr1_1_rankM$attr1_1.1, na.rm = T),mean(attr1_1_rankM$sinc1_1.1, na.rm = T),mean(attr1_1_rankM$intel1_1.1, na.rm = T),mean(attr1_1_rankM$fun1_1.1, na.rm = T),mean(attr1_1_rankM$amb1_1.1, na.rm = T),mean(attr1_1_rankM$shar1_1.1, na.rm = T))
+names(radardata1_1_M) <- c("Attractive","Sincere","Intelligent","Fun","Ambitious","Shared Interests/Hobbies")
+radardata1_1_M_2 <- rbind(rep(6,6) , rep(0,6) , radardata1_1_M)
+
+
+par(mfrow = c(1,2))
+radarchart(as.data.frame(radardata1_1_F_2),title="Female")
+radarchart(as.data.frame(radardata1_1_M_2),title="Male")
+
+```
+---
+class: inverse
+- Female subjects ranked "intelligence" as the most important attribute in their decision.
+  - Other attributes are almost ranked the same. 
+
+- Male subjects showed different patterns. 
+  -Rankked "Attractiveness" as the most important attribute for their partner. 
+
+
